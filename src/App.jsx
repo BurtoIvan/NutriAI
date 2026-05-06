@@ -223,7 +223,7 @@ async function callClaude(system, user) {
       "anthropic-version": "2023-06-01",
       "anthropic-dangerous-direct-browser-access": "true"
     },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system, messages: [{ role: "user", content: user }] }),
+    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 2000, system, messages: [{ role: "user", content: user }] }),
   });
   if (!res.ok) throw new Error(`API ${res.status}`);
   const d = await res.json();
@@ -259,7 +259,7 @@ function parseSemana(text) {
   let current = null;
   text.split("\n").forEach(line => {
     const t = line.trim();
-    const dayMatch = DAYS.find(d => t.toUpperCase().startsWith(d.toUpperCase()));
+    const dayMatch = DAYS.find(d => t.toUpperCase().replace(/\*/g, "").trim().startsWith(d.toUpperCase()));
     if (dayMatch) {
       if (current) days.push(current);
       current = { day: dayMatch, meals: [] };
