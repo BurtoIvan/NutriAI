@@ -259,11 +259,12 @@ function parseSemana(text) {
   let current = null;
   text.split("\n").forEach(line => {
     const t = line.trim();
+    if (t.toUpperCase().includes("LISTA DE COMPRAS")) { if (current) { days.push(current); current = null; } return; }
     const dayMatch = DAYS.find(d => t.toUpperCase().replace(/\*/g, "").trim().startsWith(d.toUpperCase()));
     if (dayMatch) {
       if (current) days.push(current);
       current = { day: dayMatch, meals: [] };
-    } else if (current && (t.startsWith("-") || t.includes(":"))) {
+   } else if (current && (t.startsWith("-") || t.includes(":")) && !t.toUpperCase().includes("LISTA")) {
       const clean = t.replace(/^[-•*]\s*/, "");
       const colonIdx = clean.indexOf(":");
       if (colonIdx > 0 && colonIdx < 22) {
