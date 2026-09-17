@@ -1,4 +1,4 @@
-﻿// src/views/SemanaView.jsx
+// src/views/SemanaView.jsx
 import React, { useState } from "react";
 import { CalendarDays, ChevronDown, ChevronUp, Loader2, Sparkles, Share2, Copy, Check, ChefHat } from "lucide-react";
 import { callClaude, parseSemana, parseShopList } from "../services/ai";
@@ -58,7 +58,7 @@ Generá el plan completo de Lunes a Domingo con ${profile.comidas} comidas diari
         onShowToast({ msg: "No pudimos interpretar el plan. Intentá de nuevo.", type: "error" });
       }
     } catch (err) {
-      onShowToast({ msg: "Error al generar la semana.", type: "error" });
+      onShowToast({ msg: err.message || "Error al generar la semana.", type: "error" });
     } finally {
       setLoading(false);
     }

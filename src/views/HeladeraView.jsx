@@ -1,4 +1,4 @@
-﻿// src/views/HeladeraView.jsx
+// src/views/HeladeraView.jsx
 import React, { useState } from "react";
 import { Plus, X, Sparkles, Loader2, Bookmark, RotateCcw, Share2, Utensils } from "lucide-react";
 import { callClaude } from "../services/ai";
@@ -67,7 +67,7 @@ Armá la receta ideal maximizando sabor y respetando los ingredientes.`;
       const result = await callClaude(sys, usr);
       setReceta(result);
     } catch (err) {
-      setReceta("Hubo un error al generar la receta. Por favor intentá nuevamente.");
+      setReceta(`⚠️ Error: ${err.message || "Hubo un error al generar la receta. Por favor intentá nuevamente."}`);
     } finally {
       setLoading(false);
     }

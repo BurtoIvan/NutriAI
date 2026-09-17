@@ -7,44 +7,91 @@ export function getApiKey() {
 
 export function setApiKey(key) {
   if (key) {
-    localStorage.setItem("nutri_anthropic_key", key);
+    localStorage.setItem("nutri_anthropic_key", key.trim());
   } else {
     localStorage.removeItem("nutri_anthropic_key");
   }
 }
 
 export async function callClaude(system, userPrompt) {
-  const apiKey = getApiKey();
+  const apiKey = getApiKey().trim();
 
+  // Intento 1: Llamar al endpoint serverless de Vercel (/api/generate)
+  // Esto elimina problemas de CORS y bloqueos de seguridad en Safari de iPhone.
+  try {
+    const serverlessRes = await fetch("/api/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ system, userPrompt, apiKey }),
+    });
+
+    if (serverlessRes.ok) {
+      const data = await serverlessRes.json();
+      if (data.text) return data.text;
+    } else if (serverlessRes.status !== 404) {
+      // Si el serverless respondió con un error de Anthropic (ej. 400, 401, 402 crédito)
+      const errData = await serverlessRes.json().catch(() => ({}));
+      const msg = errData.error || `Error ${serverlessRes.status}`;
+      if (msg.toLowerCase().includes("credit balance") || msg.toLowerCase().includes("balance is too low")) {
+        throw new Error("Tu cuenta de Anthropic no tiene saldo/créditos suficientes para usar la API.");
+      }
+      if (msg.toLowerCase().includes("invalid x-api-key") || msg.toLowerCase().includes("authentication_error")) {
+        throw new Error("La clave API de Claude es inválida o expiró. Verificala en la pestaña Perfil.");
+      }
+      throw new Error(`Anthropic: ${msg}`);
+    }
+  } catch (err) {
+    // Si fue un error específico de Anthropic, propagarlo
+    if (err.message.includes("Anthropic") || err.message.includes("saldo") || err.message.includes("clave API")) {
+      throw err;
+    }
+    // Si fue 404 o fallo de red local, intentamos llamada directa abajo
+  }
+
+  // Intento 2: Llamada directa al cliente Anthropic (para entorno local dev)
   if (!apiKey) {
-    // Si no hay API key configurada, generamos una respuesta inteligente simulada para pruebas inmediatas
-    await new Promise(r => setTimeout(r, 1200));
+    // Si no hay API key ni en env ni en localStorage, usamos el simulador para que la UI no se rompa
+    await new Promise((r) => setTimeout(r, 1200));
     return generateFallbackResponse(system, userPrompt);
   }
 
-  const res = await fetch(ANTHROPIC_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true"
-    },
-    body: JSON.stringify({
-      model: "claude-3-5-sonnet-20241022",
-      max_tokens: 2500,
-      system,
-      messages: [{ role: "user", content: userPrompt }]
-    }),
-  });
+  try {
+    const res = await fetch(ANTHROPIC_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: "claude-3-5-sonnet-20241022",
+        max_tokens: 2500,
+        system,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
 
-  if (!res.ok) {
-    const errorData = await res.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `Error API ${res.status}`);
+    const data = await res.json();
+
+    if (!res.ok) {
+      const msg = data.error?.message || `Error API ${res.status}`;
+      if (msg.toLowerCase().includes("credit balance") || msg.toLowerCase().includes("balance is too low")) {
+        throw new Error("Tu cuenta de Anthropic no tiene créditos suficientes para la API.");
+      }
+      if (msg.toLowerCase().includes("invalid x-api-key") || msg.toLowerCase().includes("authentication_error")) {
+        throw new Error("La clave API de Claude es inválida. Verificala en la pestaña Perfil.");
+      }
+      throw new Error(`Error de Anthropic (${res.status}): ${msg}`);
+    }
+
+    return data.content[0].text;
+  } catch (err) {
+    if (err.name === "TypeError" && err.message.toLowerCase().includes("fetch")) {
+      throw new Error("El navegador bloqueó la conexión directa con Anthropic (CORS o bloqueo de seguridad). En Vercel se usa la función del servidor.");
+    }
+    throw err;
   }
-
-  const data = await res.json();
-  return data.content[0].text;
 }
 
 export function parseMacros(text) {
@@ -52,14 +99,14 @@ export function parseMacros(text) {
   const kcal = text.match(/(\d{3,4})\s*(?:kcal|cal|calorías|calorias)/i)?.[1];
   const prot = text.match(/(\d{1,3}(?:\.\d+)?)\s*g?\s*(?:proteína|proteina|prot)/i)?.[1];
   const carb = text.match(/(\d{1,3}(?:\.\d+)?)\s*g?\s*(?:carbohidrato|carbohidratos|carb|hc)/i)?.[1];
-  const fat  = text.match(/(\d{1,3}(?:\.\d+)?)\s*g?\s*(?:grasa|grasas|fat|lip)/i)?.[1];
-  
+  const fat = text.match(/(\d{1,3}(?:\.\d+)?)\s*g?\s*(?:grasa|grasas|fat|lip)/i)?.[1];
+
   if (!kcal && !prot) return null;
   return {
     kcal: kcal || "–",
     prot: prot ? Math.round(parseFloat(prot)) : "–",
     carb: carb ? Math.round(parseFloat(carb)) : "–",
-    fat:  fat  ? Math.round(parseFloat(fat))  : "–"
+    fat: fat ? Math.round(parseFloat(fat)) : "–",
   };
 }
 
@@ -69,17 +116,20 @@ export function parseSemana(text) {
   if (!text) return [];
   const days = [];
   let current = null;
-  
+
   const lines = text.split("\n");
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
     if (t.toUpperCase().includes("LISTA DE COMPRAS")) {
-      if (current) { days.push(current); current = null; }
+      if (current) {
+        days.push(current);
+        current = null;
+      }
       break;
     }
-    
-    const dayMatch = DAYS.find(d => 
+
+    const dayMatch = DAYS.find((d) =>
       t.toUpperCase().replace(/[*#_]/g, "").trim().startsWith(d.toUpperCase())
     );
 
@@ -109,7 +159,7 @@ export function parseShopList(text) {
   const items = [];
   let cat = "General";
 
-  section.split("\n").forEach(line => {
+  section.split("\n").forEach((line) => {
     const l = line.trim();
     if (!l) return;
     if (!l.startsWith("-") && !l.startsWith("•") && !l.startsWith("*") && l.length < 40 && !l.includes("$")) {
@@ -122,7 +172,7 @@ export function parseShopList(text) {
           cat,
           name,
           price: "",
-          checked: false
+          checked: false,
         });
       }
     }
@@ -131,7 +181,7 @@ export function parseShopList(text) {
 }
 
 function generateFallbackResponse(system, userPrompt) {
-  if (userPrompt.includes("plan semanal")) {
+  if (userPrompt.includes("plan completo de Lunes a Domingo") || userPrompt.includes("plan semanal")) {
     return `LUNES
 - Desayuno: Omelette de 3 claras y 1 huevo con tostada integral y palta
 - Almuerzo: Pechuga de pollo a la plancha con arroz yamani y ensalada de espinaca
@@ -198,7 +248,6 @@ Almacén y Lácteos
 - 200g Frutos secos surtidos`;
   }
 
-  // Receta individual
   return `### Salteado proteico de pollo con vegetales crujientes y arroz
 
 **Ingredientes (para 1 porción):**
