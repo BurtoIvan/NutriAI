@@ -1,5 +1,16 @@
 ﻿// src/services/supabase.js
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kfjnwfyvydhppfsqxshv.supabase.co";
+function getValidSupabaseUrl() {
+  const envUrl = import.meta.env.VITE_SUPABASE_URL;
+  if (envUrl && typeof envUrl === "string") {
+    const trimmed = envUrl.trim();
+    if (trimmed.startsWith("https://") && trimmed.includes(".supabase.co")) {
+      return trimmed;
+    }
+  }
+  return "https://kfjnwfyvydhppfsqxshv.supabase.co";
+}
+
+const SUPABASE_URL = getValidSupabaseUrl();
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imtmam53Znl2eWRocHBmc3F4c2h2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgwNzgwMTEsImV4cCI6MjA5MzY1NDAxMX0.d98Sk60yrbpRqofuJpEa-XpK3VRdrntENq8VqptHFuQ";
 
 export function getUserId() {

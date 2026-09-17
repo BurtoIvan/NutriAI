@@ -1,4 +1,4 @@
-﻿// api/generate.js - Vercel Serverless Function (evita problemas de CORS en iPhone y protege la API Key)
+﻿// api/generate.js - Vercel Serverless Function
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -33,7 +33,7 @@ export default async function handler(req, res) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 2500,
         system: system || "",
         messages: [{ role: "user", content: userPrompt }],

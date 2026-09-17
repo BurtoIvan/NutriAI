@@ -17,7 +17,6 @@ export async function callClaude(system, userPrompt) {
   const apiKey = getApiKey().trim();
 
   // Intento 1: Llamar al endpoint serverless de Vercel (/api/generate)
-  // Esto elimina problemas de CORS y bloqueos de seguridad en Safari de iPhone.
   try {
     const serverlessRes = await fetch("/api/generate", {
       method: "POST",
@@ -29,7 +28,6 @@ export async function callClaude(system, userPrompt) {
       const data = await serverlessRes.json();
       if (data.text) return data.text;
     } else if (serverlessRes.status !== 404) {
-      // Si el serverless respondió con un error de Anthropic (ej. 400, 401, 402 crédito)
       const errData = await serverlessRes.json().catch(() => ({}));
       const msg = errData.error || `Error ${serverlessRes.status}`;
       if (msg.toLowerCase().includes("credit balance") || msg.toLowerCase().includes("balance is too low")) {
@@ -41,16 +39,13 @@ export async function callClaude(system, userPrompt) {
       throw new Error(`Anthropic: ${msg}`);
     }
   } catch (err) {
-    // Si fue un error específico de Anthropic, propagarlo
     if (err.message.includes("Anthropic") || err.message.includes("saldo") || err.message.includes("clave API")) {
       throw err;
     }
-    // Si fue 404 o fallo de red local, intentamos llamada directa abajo
   }
 
-  // Intento 2: Llamada directa al cliente Anthropic (para entorno local dev)
+  // Intento 2: Llamada directa al cliente Anthropic
   if (!apiKey) {
-    // Si no hay API key ni en env ni en localStorage, usamos el simulador para que la UI no se rompa
     await new Promise((r) => setTimeout(r, 1200));
     return generateFallbackResponse(system, userPrompt);
   }
@@ -65,7 +60,7 @@ export async function callClaude(system, userPrompt) {
         "anthropic-dangerous-direct-browser-access": "true",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
+        model: "claude-sonnet-4-20250514",
         max_tokens: 2500,
         system,
         messages: [{ role: "user", content: userPrompt }],
@@ -88,7 +83,7 @@ export async function callClaude(system, userPrompt) {
     return data.content[0].text;
   } catch (err) {
     if (err.name === "TypeError" && err.message.toLowerCase().includes("fetch")) {
-      throw new Error("El navegador bloqueó la conexión directa con Anthropic (CORS o bloqueo de seguridad). En Vercel se usa la función del servidor.");
+      throw new Error("El navegador bloqueó la conexión directa con Anthropic (CORS).");
     }
     throw err;
   }
