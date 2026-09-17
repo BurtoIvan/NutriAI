@@ -1,6 +1,15 @@
 ﻿// src/services/ai.js
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
+const CANDIDATE_MODELS = [
+  "claude-sonnet-5",
+  "claude-haiku-4-5-20251001",
+  "claude-haiku-4-5",
+  "claude-3-7-sonnet-20250219",
+  "claude-3-5-haiku-20241022",
+  "claude-3-haiku-20240307"
+];
+
 export function getApiKey() {
   return localStorage.getItem("nutri_anthropic_key") || import.meta.env.VITE_ANTHROPIC_API_KEY || "";
 }
@@ -31,7 +40,7 @@ export async function callClaude(system, userPrompt) {
       const errData = await serverlessRes.json().catch(() => ({}));
       const msg = errData.error || `Error ${serverlessRes.status}`;
       if (msg.toLowerCase().includes("credit balance") || msg.toLowerCase().includes("balance is too low")) {
-        throw new Error("Tu cuenta de Anthropic no tiene saldo/créditos suficientes para usar la API.");
+        throw new Error("Tu cuenta de Anthropic no tiene créditos suficientes para usar la API.");
       }
       if (msg.toLowerCase().includes("invalid x-api-key") || msg.toLowerCase().includes("authentication_error")) {
         throw new Error("La clave API de Claude es inválida o expiró. Verificala en la pestaña Perfil.");
@@ -39,7 +48,7 @@ export async function callClaude(system, userPrompt) {
       throw new Error(`Anthropic: ${msg}`);
     }
   } catch (err) {
-    if (err.message.includes("Anthropic") || err.message.includes("saldo") || err.message.includes("clave API")) {
+    if (err.message.includes("Anthropic") || err.message.includes("créditos") || err.message.includes("clave API")) {
       throw err;
     }
   }
@@ -50,43 +59,55 @@ export async function callClaude(system, userPrompt) {
     return generateFallbackResponse(system, userPrompt);
   }
 
-  try {
-    const res = await fetch(ANTHROPIC_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-        "anthropic-dangerous-direct-browser-access": "true",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2500,
-        system,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
-    });
+  let lastError = null;
 
-    const data = await res.json();
+  for (const model of CANDIDATE_MODELS) {
+    try {
+      const res = await fetch(ANTHROPIC_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2500,
+          system,
+          messages: [{ role: "user", content: userPrompt }],
+        }),
+      });
 
-    if (!res.ok) {
+      const data = await res.json();
+
+      if (res.ok) {
+        return data.content[0].text;
+      }
+
       const msg = data.error?.message || `Error API ${res.status}`;
-      if (msg.toLowerCase().includes("credit balance") || msg.toLowerCase().includes("balance is too low")) {
+      if (msg.toLowerCase().includes("credit balance")) {
         throw new Error("Tu cuenta de Anthropic no tiene créditos suficientes para la API.");
       }
-      if (msg.toLowerCase().includes("invalid x-api-key") || msg.toLowerCase().includes("authentication_error")) {
+      if (msg.toLowerCase().includes("invalid x-api-key")) {
         throw new Error("La clave API de Claude es inválida. Verificala en la pestaña Perfil.");
       }
-      throw new Error(`Error de Anthropic (${res.status}): ${msg}`);
-    }
 
-    return data.content[0].text;
-  } catch (err) {
-    if (err.name === "TypeError" && err.message.toLowerCase().includes("fetch")) {
-      throw new Error("El navegador bloqueó la conexión directa con Anthropic (CORS).");
+      if (res.status === 404 || msg.toLowerCase().includes("model")) {
+        lastError = msg;
+        continue;
+      }
+
+      throw new Error(`Error de Anthropic (${res.status}): ${msg}`);
+    } catch (err) {
+      if (err.message.includes("créditos") || err.message.includes("clave API")) {
+        throw err;
+      }
+      lastError = err.message;
     }
-    throw err;
   }
+
+  throw new Error(`No se pudo conectar con ningún modelo de Anthropic: ${lastError}`);
 }
 
 export function parseMacros(text) {
