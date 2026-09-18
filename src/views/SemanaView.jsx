@@ -80,7 +80,7 @@ Calorías meta: ${profile.calorias} kcal/día distribuidas en ${profile.comidas}
 ${restrictionsNotice}
 Generá el plan completo de Lunes a Domingo con ${profile.comidas} comidas diarias.`;
 
-      const raw = await callClaude(sys, usr, { max_tokens: 1500, model: "claude-3-5-haiku-20241022" });
+      const raw = await callClaude(sys, usr, { max_tokens: 1500 });
       const days = parseSemana(raw);
       const items = parseShopList(raw);
 
