@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import "./index.css";
 
-import { cloudStorage, getUserId } from "./services/storage";
+import { cloudStorage, getUserId, setUserId } from "./services/storage";
 import { Header } from "./components/Header";
 import { BottomNav } from "./components/BottomNav";
 import { MealModal } from "./components/MealModal";
@@ -15,7 +15,7 @@ import { GuardadasView } from "./views/GuardadasView";
 import { PerfilView } from "./views/PerfilView";
 
 export default function App() {
-  const [userId] = useState(() => getUserId());
+  const [userId, setUserIdState] = useState(() => getUserId());
   const [activeTab, setActiveTab] = useState("heladera");
   const [appLoading, setAppLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -63,6 +63,16 @@ export default function App() {
   const [savedRecipes, setSavedRecipes] = useState(() => {
     try {
       const saved = localStorage.getItem("nutri_saved_recipes");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // 5. Extras fuera de dieta (persistidos localmente)
+  const [extras, setExtras] = useState(() => {
+    try {
+      const saved = localStorage.getItem("nutri_extras");
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -121,6 +131,11 @@ export default function App() {
           if (Array.isArray(cloudData.semanaData) && cloudData.semanaData.length > 0) {
             setSemanaData(cloudData.semanaData);
             try { localStorage.setItem("nutri_semana_data", JSON.stringify(cloudData.semanaData)); } catch {}
+          }
+
+          if (Array.isArray(cloudData.extras)) {
+            setExtras(cloudData.extras);
+            try { localStorage.setItem("nutri_extras", JSON.stringify(cloudData.extras)); } catch {}
           }
         }
       } catch (err) {
@@ -261,6 +276,88 @@ export default function App() {
     await cloudStorage.saveUserData(userId, { shopList: updatedList });
   };
 
+  // 6. Agregar Extra (Local + Cloud)
+  const handleAddExtra = async (newExtra) => {
+    let updatedList = [];
+    setExtras((prev) => {
+      updatedList = [newExtra, ...prev];
+      try {
+        localStorage.setItem("nutri_extras", JSON.stringify(updatedList));
+      } catch {}
+      return updatedList;
+    });
+
+    setSyncing(true);
+    await cloudStorage.saveUserData(userId, { extras: updatedList });
+    setSyncing(false);
+  };
+
+  // 7. Eliminar Extra (Local + Cloud)
+  const handleDeleteExtra = async (id) => {
+    let updatedList = [];
+    setExtras((prev) => {
+      updatedList = prev.filter((e) => e.id !== id);
+      try {
+        localStorage.setItem("nutri_extras", JSON.stringify(updatedList));
+      } catch {}
+      return updatedList;
+    });
+
+    showToast({ msg: "Comida extra eliminada", type: "info" });
+    setSyncing(true);
+    await cloudStorage.saveUserData(userId, { extras: updatedList });
+    setSyncing(false);
+  };
+
+  // 8. Cambiar o Conectar Alias de Usuario (Sincronización multi-dispositivo)
+  const handleUpdateUserId = async (newAlias) => {
+    const clean = setUserId(newAlias);
+    if (!clean) return;
+    setUserIdState(clean);
+    setSyncing(true);
+
+    try {
+      const cloudData = await cloudStorage.loadUserData(clean);
+      if (cloudData) {
+        if (cloudData.profile && Object.keys(cloudData.profile).length > 0) {
+          setProfile(cloudData.profile);
+          try { localStorage.setItem("nutri_user_profile", JSON.stringify(cloudData.profile)); } catch {}
+        }
+        if (Array.isArray(cloudData.recipes)) {
+          setSavedRecipes(cloudData.recipes);
+          try { localStorage.setItem("nutri_saved_recipes", JSON.stringify(cloudData.recipes)); } catch {}
+        }
+        if (Array.isArray(cloudData.shopList)) {
+          setShopList(cloudData.shopList);
+          try { localStorage.setItem("nutri_shopping_list", JSON.stringify(cloudData.shopList)); } catch {}
+        }
+        if (Array.isArray(cloudData.semanaData)) {
+          setSemanaData(cloudData.semanaData);
+          try { localStorage.setItem("nutri_semana_data", JSON.stringify(cloudData.semanaData)); } catch {}
+        }
+        if (Array.isArray(cloudData.extras)) {
+          setExtras(cloudData.extras);
+          try { localStorage.setItem("nutri_extras", JSON.stringify(cloudData.extras)); } catch {}
+        }
+        showToast({ msg: `Sincronizados datos de ${clean}`, type: "success" });
+      } else {
+        // Alias nuevo: vinculamos los datos locales actuales para esa cuenta
+        await cloudStorage.saveUserData(clean, {
+          profile,
+          recipes: savedRecipes,
+          shopList,
+          semanaData,
+          extras,
+        });
+        showToast({ msg: `Cuenta ${clean} creada y vinculada`, type: "success" });
+      }
+    } catch (err) {
+      console.warn("Error vinculando cuenta:", err);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   if (appLoading) {
     return (
       <div className="app-wrapper" style={{ justifyContent: "center", alignItems: "center" }}>
@@ -288,6 +385,9 @@ export default function App() {
           onUpdateSemana={handleUpdateSemana}
           onSelectMeal={(mealData) => setSelectedMeal(mealData)}
           onShowToast={showToast}
+          extras={extras}
+          onAddExtra={handleAddExtra}
+          onDeleteExtra={handleDeleteExtra}
         />
       )}
 
@@ -310,6 +410,8 @@ export default function App() {
           profile={profile}
           onUpdateProfile={handleUpdateProfile}
           onShowToast={showToast}
+          currentUserId={userId}
+          onUpdateUserId={handleUpdateUserId}
         />
       )}
 

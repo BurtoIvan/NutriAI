@@ -1,12 +1,24 @@
-// src/views/SemanaView.jsx
 import React, { useState } from "react";
-import { CalendarDays, ChevronDown, ChevronUp, Loader2, Sparkles, Share2, Copy, Check, ChefHat } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronUp, Loader2, Sparkles, Share2, Copy, Check, ChefHat, Cookie, Plus, Trash2 } from "lucide-react";
 import { callClaude, parseSemana, parseShopList } from "../services/ai";
+import { ExtrasModal } from "../components/ExtrasModal";
 
-export function SemanaView({ profile, semanaData, onUpdateSemana, onSelectMeal, onShowToast }) {
+export function SemanaView({
+  profile,
+  semanaData,
+  onUpdateSemana,
+  onSelectMeal,
+  onShowToast,
+  extras = [],
+  onAddExtra,
+  onDeleteExtra,
+}) {
   const [loading, setLoading] = useState(false);
   const [expandedDay, setExpandedDay] = useState("Lunes");
   const [copied, setCopied] = useState(false);
+  const [showExtrasModal, setShowExtrasModal] = useState(false);
+
+  const totalExtrasKcal = extras.reduce((sum, e) => sum + (Number(e.kcal) || 0), 0);
 
   const handleGenerateSemana = async () => {
     setLoading(true);
@@ -166,6 +178,67 @@ Generá el plan completo de Lunes a Domingo con ${profile.comidas} comidas diari
         )}
       </div>
 
+      {/* Tarjeta de Extras de la Semana */}
+      <div className="extras-card">
+        <div className="extras-header-row">
+          <div className="extras-title-wrap">
+            <div className="extras-icon-box">
+              <Cookie size={20} />
+            </div>
+            <div>
+              <div className="extras-title-text">Extras fuera de plan</div>
+              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
+                {extras.length === 0
+                  ? "Sin comidas extra registradas"
+                  : `${extras.length} ${extras.length === 1 ? "comida registrada" : "comidas registradas"}`}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="extras-stat-pill">+{totalExtrasKcal} kcal</span>
+            <button
+              className="btn-secondary"
+              style={{ padding: "6px 12px", fontSize: "0.82rem", display: "flex", alignItems: "center", gap: 4 }}
+              onClick={() => setShowExtrasModal(true)}
+            >
+              <Plus size={14} /> Anotar
+            </button>
+          </div>
+        </div>
+
+        {extras.length > 0 && (
+          <>
+            <div className="extras-summary-bar">
+              <span>Meta semanal base: {(profile.calorias * 7).toLocaleString()} kcal</span>
+              <span style={{ color: "#fb7185", fontWeight: 700 }}>
+                Total: {(profile.calorias * 7 + totalExtrasKcal).toLocaleString()} kcal
+              </span>
+            </div>
+
+            <div className="extras-items-list">
+              {extras.map((extra) => (
+                <div key={extra.id} className="extra-item-row">
+                  <div className="extra-item-left">
+                    <span className="extra-day-badge">{extra.day ? extra.day.slice(0, 3) : "EXT"}</span>
+                    <span style={{ fontWeight: 500 }}>{extra.name}</span>
+                  </div>
+                  <div className="extra-item-right">
+                    <span className="extra-kcal-badge">+{extra.kcal} kcal</span>
+                    <button
+                      className="btn-delete-extra"
+                      onClick={() => onDeleteExtra(extra.id)}
+                      title="Eliminar este extra"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
       {loading && (
         <div className="loading-card">
           <Loader2 size={36} className="spin-animate text-accent" />
@@ -228,6 +301,14 @@ Generá el plan completo de Lunes a Domingo con ${profile.comidas} comidas diari
             );
           })}
         </div>
+      )}
+
+      {showExtrasModal && (
+        <ExtrasModal
+          onClose={() => setShowExtrasModal(false)}
+          onAddExtra={onAddExtra}
+          onShowToast={onShowToast}
+        />
       )}
     </div>
   );

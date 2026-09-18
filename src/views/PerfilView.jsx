@@ -1,15 +1,18 @@
-﻿// src/views/PerfilView.jsx
 import React, { useState } from "react";
-import { User, Flame, Target, Scale, Key, Check, Info, Sparkles } from "lucide-react";
+import { User, Flame, Target, Scale, Key, Check, Info, Sparkles, Smartphone, Copy, Link2 } from "lucide-react";
 import { getApiKey, setApiKey } from "../services/ai";
+import { getSyncUrl } from "../services/storage";
 
 const COMMON_RESTRICTIONS = [
   "Sin gluten", "Sin lactosa", "Vegetariano", "Vegano", "Sin frutos secos", "Bajo en sodio", "Sin mariscos"
 ];
 
-export function PerfilView({ profile, onUpdateProfile, onShowToast }) {
+export function PerfilView({ profile, onUpdateProfile, onShowToast, currentUserId, onUpdateUserId }) {
   const [apiKeyInput, setApiKeyInput] = useState(getApiKey());
   const [keySaved, setKeySaved] = useState(false);
+  const [aliasInput, setAliasInput] = useState(currentUserId || "");
+  const [aliasSaved, setAliasSaved] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Cálculo automático sugerido de TDEE (Mifflin-St Jeor aproximado)
   const calculateSuggestedCalories = () => {
@@ -47,6 +50,32 @@ export function PerfilView({ profile, onUpdateProfile, onShowToast }) {
     setKeySaved(true);
     setTimeout(() => setKeySaved(false), 2000);
     onShowToast({ msg: "Clave de API guardada correctamente", type: "success" });
+  };
+
+  const handleSaveAlias = () => {
+    if (!aliasInput.trim()) {
+      onShowToast({ msg: "Ingresá un alias o nombre de usuario", type: "error" });
+      return;
+    }
+    const clean = aliasInput.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+    if (clean.length < 3) {
+      onShowToast({ msg: "El alias debe tener al menos 3 caracteres", type: "error" });
+      return;
+    }
+    onUpdateUserId(clean);
+    setAliasSaved(true);
+    setTimeout(() => setAliasSaved(false), 2000);
+    onShowToast({ msg: `✅ Conectado a la cuenta: ${clean}`, type: "success" });
+  };
+
+  const handleCopyLink = () => {
+    const activeId = currentUserId || aliasInput;
+    if (!activeId) return;
+    const url = getSyncUrl(activeId);
+    navigator.clipboard?.writeText(url);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2500);
+    onShowToast({ msg: "🔗 Link de sincronización copiado", type: "success" });
   };
 
   const currentRestrictions = profile.restricciones 
@@ -225,6 +254,54 @@ export function PerfilView({ profile, onUpdateProfile, onShowToast }) {
           <button className="btn-secondary" onClick={handleSaveApiKey}>
             {keySaved ? <Check size={16} className="text-accent" /> : "Guardar"}
           </button>
+        </div>
+      </div>
+
+      {/* Sincronización y Cuenta Multi-Dispositivo */}
+      <div className="card">
+        <div className="card-header-flex">
+          <span className="card-label">Sincronización entre Dispositivos</span>
+          <Smartphone size={16} className="text-accent" />
+        </div>
+        <p className="card-helper-text">
+          Elegí un Alias personal para usar la misma cuenta en tu compu y tu celular. Tus datos se sincronizan con Neon Postgres.
+        </p>
+
+        <div className="input-with-button" style={{ marginTop: 10 }}>
+          <input
+            type="text"
+            className="form-input"
+            placeholder="Ej. ivan o tu_nombre"
+            value={aliasInput}
+            onChange={(e) => setAliasInput(e.target.value)}
+          />
+          <button className="btn-secondary" onClick={handleSaveAlias}>
+            {aliasSaved ? <Check size={16} className="text-accent" /> : "Conectar"}
+          </button>
+        </div>
+
+        <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+          <button
+            className="btn-secondary"
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              fontSize: "0.82rem",
+              padding: "10px"
+            }}
+            onClick={handleCopyLink}
+          >
+            {linkCopied ? <Check size={15} className="text-accent" /> : <Copy size={15} />}
+            <span>Copiar link mágico para mi celu</span>
+          </button>
+        </div>
+
+        <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: 10, display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#34d399", display: "inline-block" }} />
+          <span>Base de datos Neon Postgres conectada · Usuario: <strong style={{ color: "var(--text-primary)" }}>{currentUserId || "No asignado"}</strong></span>
         </div>
       </div>
     </div>

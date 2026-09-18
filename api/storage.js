@@ -1,8 +1,31 @@
 // api/storage.js - Vercel Storage Endpoint con Neon Postgres y KV
 import { neon } from "@neondatabase/serverless";
 
+// Cache a nivel de contenedor serverless para evitar DDL en cada request
+let isSchemaReady = false;
+
+async function ensureSchema(sql) {
+  if (isSchemaReady) return;
+  try {
+    await sql`
+      CREATE TABLE IF NOT EXISTS user_nutri_data (
+        user_id TEXT PRIMARY KEY,
+        profile JSONB DEFAULT '{}'::jsonb,
+        recipes JSONB DEFAULT '[]'::jsonb,
+        shop_list JSONB DEFAULT '[]'::jsonb,
+        semana_data JSONB DEFAULT '[]'::jsonb,
+        extras JSONB DEFAULT '[]'::jsonb,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+      );
+    `;
+    await sql`ALTER TABLE user_nutri_data ADD COLUMN IF NOT EXISTS extras JSONB DEFAULT '[]'::jsonb;`;
+    isSchemaReady = true;
+  } catch (err) {
+    console.warn("[Schema Init Warning]:", err.message);
+  }
+}
+
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -20,35 +43,29 @@ export default async function handler(req, res) {
   if (!hasPostgres && !hasKV) {
     return res.status(200).json({
       enabled: false,
-      message: "No hay base de datos de Vercel conectada aún. Se utiliza localStorage."
+      message: "No hay base de datos conectada. Usando almacenamiento local."
     });
   }
 
-  const userId = req.query.userId || req.body?.userId;
-  if (!userId) {
-    return res.status(400).json({ error: "Falta userId" });
+  // Validación y normalización estricta del userId
+  const rawId = req.query.userId || req.body?.userId;
+  if (!rawId || typeof rawId !== "string" || !rawId.trim()) {
+    return res.status(400).json({ error: "Falta userId válido" });
+  }
+  const userId = rawId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+  if (userId.length < 2) {
+    return res.status(400).json({ error: "El userId debe tener al menos 2 caracteres" });
   }
 
   // 1. Integración con Neon Postgres
   if (hasPostgres) {
     try {
       const sql = neon(dbUrl);
-
-      // Crear tabla automáticamente si es la primera vez
-      await sql`
-        CREATE TABLE IF NOT EXISTS user_nutri_data (
-          user_id TEXT PRIMARY KEY,
-          profile JSONB,
-          recipes JSONB,
-          shop_list JSONB,
-          semana_data JSONB,
-          updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-        );
-      `;
+      await ensureSchema(sql);
 
       if (req.method === "GET") {
         const rows = await sql`
-          SELECT profile, recipes, shop_list, semana_data 
+          SELECT profile, recipes, shop_list, semana_data, extras 
           FROM user_nutri_data 
           WHERE user_id = ${userId}
         `;
@@ -58,10 +75,11 @@ export default async function handler(req, res) {
             enabled: true,
             type: "neon-postgres",
             data: {
-              profile: rows[0].profile,
-              recipes: rows[0].recipes,
-              shopList: rows[0].shop_list,
-              semanaData: rows[0].semana_data,
+              profile: rows[0].profile || null,
+              recipes: rows[0].recipes || [],
+              shopList: rows[0].shop_list || [],
+              semanaData: rows[0].semana_data || [],
+              extras: rows[0].extras || [],
             }
           });
         }
@@ -69,21 +87,23 @@ export default async function handler(req, res) {
       }
 
       if (req.method === "POST") {
-        const { profile, recipes, shopList, semanaData } = req.body || {};
+        const { profile, recipes, shopList, semanaData, extras } = req.body || {};
 
         const pVal = profile !== undefined ? JSON.stringify(profile) : null;
         const rVal = recipes !== undefined ? JSON.stringify(recipes) : null;
         const sVal = shopList !== undefined ? JSON.stringify(shopList) : null;
         const wVal = semanaData !== undefined ? JSON.stringify(semanaData) : null;
+        const eVal = extras !== undefined ? JSON.stringify(extras) : null;
 
         await sql`
-          INSERT INTO user_nutri_data (user_id, profile, recipes, shop_list, semana_data, updated_at)
+          INSERT INTO user_nutri_data (user_id, profile, recipes, shop_list, semana_data, extras, updated_at)
           VALUES (
             ${userId},
             COALESCE(${pVal}::jsonb, '{}'::jsonb),
             COALESCE(${rVal}::jsonb, '[]'::jsonb),
             COALESCE(${sVal}::jsonb, '[]'::jsonb),
             COALESCE(${wVal}::jsonb, '[]'::jsonb),
+            COALESCE(${eVal}::jsonb, '[]'::jsonb),
             NOW()
           )
           ON CONFLICT (user_id) DO UPDATE SET
@@ -91,20 +111,21 @@ export default async function handler(req, res) {
             recipes = COALESCE(${rVal}::jsonb, user_nutri_data.recipes),
             shop_list = COALESCE(${sVal}::jsonb, user_nutri_data.shop_list),
             semana_data = COALESCE(${wVal}::jsonb, user_nutri_data.semana_data),
+            extras = COALESCE(${eVal}::jsonb, user_nutri_data.extras),
             updated_at = NOW();
         `;
 
         return res.status(200).json({ enabled: true, type: "neon-postgres", success: true });
       }
     } catch (err) {
-      console.error("Error Neon Postgres:", err);
-      return res.status(500).json({ error: err.message });
+      console.error("[Neon Postgres Error]:", err);
+      return res.status(500).json({ error: "Error de servidor al acceder a la base de datos." });
     }
   }
 
   // 2. Fallback KV (Upstash)
   if (hasKV) {
-    const key = `user_data:${userId}`;
+    const key = `user_data:${encodeURIComponent(userId)}`;
     if (req.method === "GET") {
       try {
         const response = await fetch(`${KV_REST_API_URL}/get/${key}`, {
@@ -114,13 +135,24 @@ export default async function handler(req, res) {
         const data = result.result ? JSON.parse(result.result) : null;
         return res.status(200).json({ enabled: true, type: "kv", data });
       } catch (err) {
-        return res.status(500).json({ error: err.message });
+        console.error("[KV Read Error]:", err);
+        return res.status(500).json({ error: "Error al leer datos remotos." });
       }
     }
 
     if (req.method === "POST") {
       try {
-        const payload = JSON.stringify(req.body || {});
+        let existing = {};
+        try {
+          const resExisting = await fetch(`${KV_REST_API_URL}/get/${key}`, {
+            headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` }
+          });
+          const parsed = await resExisting.json();
+          if (parsed.result) existing = JSON.parse(parsed.result);
+        } catch {}
+
+        const merged = { ...existing, ...req.body };
+        const payload = JSON.stringify(merged);
         await fetch(`${KV_REST_API_URL}/set/${key}`, {
           method: "POST",
           headers: { Authorization: `Bearer ${KV_REST_API_TOKEN}` },
@@ -128,10 +160,11 @@ export default async function handler(req, res) {
         });
         return res.status(200).json({ enabled: true, type: "kv", success: true });
       } catch (err) {
-        return res.status(500).json({ error: err.message });
+        console.error("[KV Write Error]:", err);
+        return res.status(500).json({ error: "Error al guardar datos remotos." });
       }
     }
   }
 
-  return res.status(200).json({ enabled: false, message: "Storage no activo" });
+  return res.status(405).json({ error: "Método no permitido" });
 }

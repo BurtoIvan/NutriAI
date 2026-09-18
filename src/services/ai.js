@@ -298,3 +298,33 @@ Almacén y Lácteos
 
 MACROS: 560 kcal | 48g proteína | 52g carbohidratos | 14g grasas`;
 }
+
+export async function estimateExtraCalories(description) {
+  if (!description || !description.trim()) return null;
+  const sys = `Sos un nutricionista deportivo y experto en cálculo calórico de comidas argentinas e internacionales.
+Tu tarea es estimar las calorías totales aproximadas del alimento o comida extra que indique el usuario.
+Respondé ÚNICAMENTE en formato JSON válido sin texto adicional:
+{"kcal": 450, "detail": "Aprox. 225 kcal por unidad mediana"}`;
+
+  const usr = `Alimento/comida consumida: "${description.trim()}". ¿Cuántas calorías totales son aproximadamente?`;
+
+  try {
+    const raw = await callClaude(sys, usr, { max_tokens: 200 });
+    const match = raw.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      return {
+        kcal: Math.round(Number(parsed.kcal)) || 0,
+        detail: parsed.detail || ""
+      };
+    }
+    const numMatch = raw.match(/(\d{2,4})\s*(?:kcal|calorías|calorias)?/i);
+    if (numMatch) {
+      return { kcal: Math.round(Number(numMatch[1])), detail: raw.trim() };
+    }
+  } catch (err) {
+    console.warn("Error al estimar calorías con IA:", err);
+  }
+  return null;
+}
+
