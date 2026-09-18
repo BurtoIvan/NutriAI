@@ -1,4 +1,4 @@
-﻿// api/generate.js - Vercel Serverless Function con auto-fallback de modelos
+// api/generate.js - Vercel Serverless Function con auto-fallback de modelos
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Credentials", "true");
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -18,22 +18,25 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { system, userPrompt, apiKey: userKey } = req.body || {};
+    const { system, userPrompt, apiKey: userKey, max_tokens: reqTokens, model: requestedModel } = req.body || {};
     const key = userKey || process.env.ANTHROPIC_API_KEY || process.env.VITE_ANTHROPIC_API_KEY;
 
     if (!key) {
       return res.status(400).json({ error: "No se proporcionó una clave de API de Anthropic." });
     }
 
-    const CANDIDATE_MODELS = [
-      "claude-sonnet-5",
-      "claude-haiku-4-5-20251001",
-      "claude-haiku-4-5",
-      "claude-3-7-sonnet-20250219",
+    // Modelos reales y verificados, priorizando el más rápido para evitar límites de tiempo en Serverless
+    const baseModels = [
       "claude-3-5-haiku-20241022",
-      "claude-3-haiku-20240307"
+      "claude-3-haiku-20240307",
+      "claude-3-5-sonnet-20241022",
+      "claude-3-7-sonnet-20250219"
     ];
+    const CANDIDATE_MODELS = requestedModel
+      ? [...new Set([requestedModel, ...baseModels])]
+      : baseModels;
 
+    const maxTokens = Number(reqTokens) || 1800;
     let lastError = null;
 
     for (const model of CANDIDATE_MODELS) {
@@ -47,7 +50,7 @@ export default async function handler(req, res) {
           },
           body: JSON.stringify({
             model: model,
-            max_tokens: 2500,
+            max_tokens: maxTokens,
             system: system || "",
             messages: [{ role: "user", content: userPrompt }],
           }),

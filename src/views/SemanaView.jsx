@@ -18,6 +18,7 @@ export function SemanaView({ profile, semanaData, onUpdateSemana, onSelectMeal, 
       };
 
       const sys = `Sos un nutricionista deportivo de Argentina. Diseñá un menú semanal de 7 días variado, nutritivo y adaptado a alimentos accesibles en el país.
+Respondé DIRECTAMENTE con el menú, sin saludos, introducciones ni explicaciones.
 Formato de respuesta EXACTO:
 LUNES
 - Desayuno: Nombre del plato
@@ -26,7 +27,40 @@ LUNES
 - Cena: Nombre del plato
 
 MARTES
-[etc.]
+- Desayuno: Nombre del plato
+- Almuerzo: Nombre del plato
+- Merienda: Nombre del plato
+- Cena: Nombre del plato
+
+MIERCOLES
+- Desayuno: Nombre del plato
+- Almuerzo: Nombre del plato
+- Merienda: Nombre del plato
+- Cena: Nombre del plato
+
+JUEVES
+- Desayuno: Nombre del plato
+- Almuerzo: Nombre del plato
+- Merienda: Nombre del plato
+- Cena: Nombre del plato
+
+VIERNES
+- Desayuno: Nombre del plato
+- Almuerzo: Nombre del plato
+- Merienda: Nombre del plato
+- Cena: Nombre del plato
+
+SABADO
+- Desayuno: Nombre del plato
+- Almuerzo: Nombre del plato
+- Merienda: Nombre del plato
+- Cena: Nombre del plato
+
+DOMINGO
+- Desayuno: Nombre del plato
+- Almuerzo: Nombre del plato
+- Merienda: Nombre del plato
+- Cena: Nombre del plato
 
 LISTA DE COMPRAS
 Carnicería y Pescadería
@@ -46,7 +80,7 @@ Calorías meta: ${profile.calorias} kcal/día distribuidas en ${profile.comidas}
 ${restrictionsNotice}
 Generá el plan completo de Lunes a Domingo con ${profile.comidas} comidas diarias.`;
 
-      const raw = await callClaude(sys, usr);
+      const raw = await callClaude(sys, usr, { max_tokens: 1500, model: "claude-3-5-haiku-20241022" });
       const days = parseSemana(raw);
       const items = parseShopList(raw);
 

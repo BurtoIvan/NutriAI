@@ -2,12 +2,10 @@
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
 const CANDIDATE_MODELS = [
-  "claude-sonnet-5",
-  "claude-haiku-4-5-20251001",
-  "claude-haiku-4-5",
-  "claude-3-7-sonnet-20250219",
   "claude-3-5-haiku-20241022",
-  "claude-3-haiku-20240307"
+  "claude-3-haiku-20240307",
+  "claude-3-5-sonnet-20241022",
+  "claude-3-7-sonnet-20250219"
 ];
 
 export function getApiKey() {
@@ -22,21 +20,28 @@ export function setApiKey(key) {
   }
 }
 
-export async function callClaude(system, userPrompt) {
+export async function callClaude(system, userPrompt, options = {}) {
   const apiKey = getApiKey().trim();
+  const maxTokens = options.max_tokens || 1800;
+  const model = options.model || "claude-3-5-haiku-20241022";
 
   // Intento 1: Llamar al endpoint serverless de Vercel (/api/generate)
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 28000);
+
     const serverlessRes = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system, userPrompt, apiKey }),
+      body: JSON.stringify({ system, userPrompt, apiKey, max_tokens: maxTokens, model }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (serverlessRes.ok) {
       const data = await serverlessRes.json();
       if (data.text) return data.text;
-    } else if (serverlessRes.status !== 404) {
+    } else if (serverlessRes.status !== 404 && serverlessRes.status !== 504) {
       const errData = await serverlessRes.json().catch(() => ({}));
       const msg = errData.error || `Error ${serverlessRes.status}`;
       if (msg.toLowerCase().includes("credit balance") || msg.toLowerCase().includes("balance is too low")) {
@@ -153,7 +158,10 @@ export function parseSemana(text) {
       break;
     }
 
-    const cleanForDay = t.replace(/[*#_]/g, "").trim();
+    const cleanForDay = t
+      .replace(/^(\d+[\.\)]\s*|d[ií]a\s*\d+\s*[:\-]?\s*)/i, "")
+      .replace(/[*#_]/g, "")
+      .trim();
     const dayMatch = DAYS.find((d) => d.regex.test(cleanForDay) && cleanForDay.length < 25);
 
     if (dayMatch) {
