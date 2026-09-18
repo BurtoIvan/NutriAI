@@ -1,8 +1,8 @@
-﻿// src/App.jsx
+// src/App.jsx
 import React, { useState, useEffect, useRef } from "react";
 import "./index.css";
 
-import { supabaseService, getUserId } from "./services/supabase";
+import { cloudStorage, getUserId } from "./services/storage";
 import { Header } from "./components/Header";
 import { BottomNav } from "./components/BottomNav";
 import { MealModal } from "./components/MealModal";
@@ -81,58 +81,52 @@ export default function App() {
     }, 2800);
   };
 
-  // Sincronización en segundo plano con Supabase si está disponible
+  // Sincronización en segundo plano con Neon Postgres / Vercel Storage
   useEffect(() => {
     let isMounted = true;
     async function syncFromCloud() {
       try {
-        const [profileRes, recipesRes, shoppingRes] = await Promise.allSettled([
-          supabaseService.getProfile(userId),
-          supabaseService.getRecipes(userId),
-          supabaseService.getShoppingItems(userId),
-        ]);
-
+        setSyncing(true);
+        const cloudData = await cloudStorage.loadUserData(userId);
         if (!isMounted) return;
 
-        // Si la nube tiene perfil más reciente
-        if (profileRes.status === "fulfilled" && profileRes.value) {
-          const p = profileRes.value;
-          setProfile((prev) => {
-            const updated = {
-              ...prev,
-              peso: p.peso ?? prev.peso,
-              altura: p.altura ?? prev.altura,
-              edad: p.edad ?? prev.edad,
-              objetivo: p.objetivo ?? prev.objetivo,
-              comidas: p.comidas ?? prev.comidas,
-              calorias: p.calorias ?? prev.calorias,
-              restricciones: p.restricciones || prev.restricciones,
-            };
-            try { localStorage.setItem("nutri_user_profile", JSON.stringify(updated)); } catch {}
-            return updated;
-          });
-        }
+        if (cloudData) {
+          if (cloudData.profile && Object.keys(cloudData.profile).length > 0) {
+            setProfile((prev) => {
+              const updated = {
+                ...prev,
+                peso: cloudData.profile.peso ?? prev.peso,
+                altura: cloudData.profile.altura ?? prev.altura,
+                edad: cloudData.profile.edad ?? prev.edad,
+                objetivo: cloudData.profile.objetivo ?? prev.objetivo,
+                comidas: cloudData.profile.comidas ?? prev.comidas,
+                calorias: cloudData.profile.calorias ?? prev.calorias,
+                restricciones: cloudData.profile.restricciones || prev.restricciones,
+              };
+              try { localStorage.setItem("nutri_user_profile", JSON.stringify(updated)); } catch {}
+              return updated;
+            });
+          }
 
-        // Si la nube tiene recetas
-        if (recipesRes.status === "fulfilled" && Array.isArray(recipesRes.value) && recipesRes.value.length > 0) {
-          setSavedRecipes(recipesRes.value);
-          try { localStorage.setItem("nutri_saved_recipes", JSON.stringify(recipesRes.value)); } catch {}
-        }
+          if (Array.isArray(cloudData.recipes) && cloudData.recipes.length > 0) {
+            setSavedRecipes(cloudData.recipes);
+            try { localStorage.setItem("nutri_saved_recipes", JSON.stringify(cloudData.recipes)); } catch {}
+          }
 
-        // Si la nube tiene lista de compras
-        if (shoppingRes.status === "fulfilled" && Array.isArray(shoppingRes.value) && shoppingRes.value.length > 0) {
-          const items = shoppingRes.value.map((i) => ({
-            id: i.id || crypto.randomUUID(),
-            cat: i.cat || "General",
-            name: i.nombre,
-            price: i.price ?? "",
-            checked: Boolean(i.checked),
-          }));
-          setShopList(items);
-          try { localStorage.setItem("nutri_shopping_list", JSON.stringify(items)); } catch {}
+          if (Array.isArray(cloudData.shopList) && cloudData.shopList.length > 0) {
+            setShopList(cloudData.shopList);
+            try { localStorage.setItem("nutri_shopping_list", JSON.stringify(cloudData.shopList)); } catch {}
+          }
+
+          if (Array.isArray(cloudData.semanaData) && cloudData.semanaData.length > 0) {
+            setSemanaData(cloudData.semanaData);
+            try { localStorage.setItem("nutri_semana_data", JSON.stringify(cloudData.semanaData)); } catch {}
+          }
         }
       } catch (err) {
-        // Modo offline transparente sin errores molestos
+        // Fallback offline silencioso
+      } finally {
+        if (isMounted) setSyncing(false);
       }
     }
 
@@ -154,9 +148,7 @@ export default function App() {
     clearTimeout(profileTimer.current);
     profileTimer.current = setTimeout(async () => {
       setSyncing(true);
-      try {
-        await supabaseService.saveProfile(userId, newProfile);
-      } catch {}
+      await cloudStorage.saveUserData(userId, { profile: newProfile });
       setSyncing(false);
     }, 1000);
   };
@@ -167,105 +159,106 @@ export default function App() {
     const date = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "2-digit" });
     const newRecipe = { id, nombre, texto, date };
 
+    let updatedList = [];
     setSavedRecipes((prev) => {
-      const updated = [newRecipe, ...prev];
+      updatedList = [newRecipe, ...prev];
       try {
-        localStorage.setItem("nutri_saved_recipes", JSON.stringify(updated));
+        localStorage.setItem("nutri_saved_recipes", JSON.stringify(updatedList));
       } catch {}
-      return updated;
+      return updatedList;
     });
 
     showToast({ msg: "⭐ Receta guardada en tu recetario", type: "success" });
-
-    try {
-      await supabaseService.saveRecipe(userId, newRecipe);
-    } catch {}
+    setSyncing(true);
+    await cloudStorage.saveUserData(userId, { recipes: updatedList });
+    setSyncing(false);
   };
 
   // Eliminar receta (Local + Cloud)
   const handleDeleteRecipe = async (id) => {
+    let updatedList = [];
     setSavedRecipes((prev) => {
-      const updated = prev.filter((r) => r.id !== id);
+      updatedList = prev.filter((r) => r.id !== id);
       try {
-        localStorage.setItem("nutri_saved_recipes", JSON.stringify(updated));
+        localStorage.setItem("nutri_saved_recipes", JSON.stringify(updatedList));
       } catch {}
-      return updated;
+      return updatedList;
     });
 
     showToast({ msg: "🗑 Receta eliminada", type: "info" });
-    try {
-      await supabaseService.deleteRecipe(id);
-    } catch {}
+    setSyncing(true);
+    await cloudStorage.saveUserData(userId, { recipes: updatedList });
+    setSyncing(false);
   };
 
-  // Actualizar plan semanal
+  // Actualizar plan semanal (Local + Cloud)
   const handleUpdateSemana = async (days, items) => {
     setSemanaData(days);
     try {
       localStorage.setItem("nutri_semana_data", JSON.stringify(days));
     } catch {}
 
+    let nextShop = shopList;
     if (Array.isArray(items)) {
       setShopList(items);
+      nextShop = items;
       try {
         localStorage.setItem("nutri_shopping_list", JSON.stringify(items));
-        await supabaseService.replaceShoppingList(userId, items);
       } catch {}
     }
+
+    setSyncing(true);
+    await cloudStorage.saveUserData(userId, { semanaData: days, shopList: nextShop });
+    setSyncing(false);
   };
 
   // Actualizar precio con debounce (Local + Cloud)
   const priceTimers = useRef({});
   const handleUpdatePrice = (id, newPrice) => {
+    let updatedList = [];
     setShopList((prev) => {
-      const updated = prev.map((item) => (item.id === id ? { ...item, price: newPrice } : item));
+      updatedList = prev.map((item) => (item.id === id ? { ...item, price: newPrice } : item));
       try {
-        localStorage.setItem("nutri_shopping_list", JSON.stringify(updated));
+        localStorage.setItem("nutri_shopping_list", JSON.stringify(updatedList));
       } catch {}
-      return updated;
+      return updatedList;
     });
 
     clearTimeout(priceTimers.current[id]);
     priceTimers.current[id] = setTimeout(async () => {
-      try {
-        await supabaseService.updateShoppingItem(id, { price: newPrice });
-      } catch {}
+      setSyncing(true);
+      await cloudStorage.saveUserData(userId, { shopList: updatedList });
+      setSyncing(false);
     }, 800);
   };
 
   // Marcar / desmarcar ítem de compras (Local + Cloud)
   const handleToggleCheck = async (id) => {
-    const targetItem = shopList.find((i) => i.id === id);
-    if (!targetItem) return;
-    const nextChecked = !targetItem.checked;
-
+    let updatedList = [];
     setShopList((prev) => {
-      const updated = prev.map((item) => (item.id === id ? { ...item, checked: nextChecked } : item));
+      updatedList = prev.map((item) => (item.id === id ? { ...item, checked: !item.checked } : item));
       try {
-        localStorage.setItem("nutri_shopping_list", JSON.stringify(updated));
+        localStorage.setItem("nutri_shopping_list", JSON.stringify(updatedList));
       } catch {}
-      return updated;
+      return updatedList;
     });
 
-    try {
-      await supabaseService.updateShoppingItem(id, { checked: nextChecked });
-    } catch {}
+    await cloudStorage.saveUserData(userId, { shopList: updatedList });
   };
 
   // Resetear tachados (Local + Cloud)
   const handleResetChecked = async () => {
+    let updatedList = [];
     setShopList((prev) => {
-      const updated = prev.map((item) => ({ ...item, checked: false }));
+      updatedList = prev.map((item) => ({ ...item, checked: false }));
       try {
-        localStorage.setItem("nutri_shopping_list", JSON.stringify(updated));
+        localStorage.setItem("nutri_shopping_list", JSON.stringify(updatedList));
       } catch {}
-      return updated;
+      return updatedList;
     });
 
     showToast({ msg: "Productos desmarcados", type: "info" });
-    try {
-      await supabaseService.resetCheckedItems(userId);
-    } catch {}
+    await cloudStorage.saveUserData(userId, { shopList: updatedList });
   };
 
   if (appLoading) {
