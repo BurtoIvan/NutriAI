@@ -1,4 +1,4 @@
-﻿// src/services/ai.js
+// src/services/ai.js
 const ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages";
 
 const CANDIDATE_MODELS = [
@@ -126,7 +126,15 @@ export function parseMacros(text) {
   };
 }
 
-const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
+const DAYS = [
+  { name: "Lunes", regex: /^lunes/i },
+  { name: "Martes", regex: /^martes/i },
+  { name: "Miércoles", regex: /^mi[eé]rcoles/i },
+  { name: "Jueves", regex: /^jueves/i },
+  { name: "Viernes", regex: /^viernes/i },
+  { name: "Sábado", regex: /^s[aá]bado/i },
+  { name: "Domingo", regex: /^domingo/i },
+];
 
 export function parseSemana(text) {
   if (!text) return [];
@@ -137,7 +145,7 @@ export function parseSemana(text) {
   for (const line of lines) {
     const t = line.trim();
     if (!t) continue;
-    if (t.toUpperCase().includes("LISTA DE COMPRAS")) {
+    if (t.toUpperCase().includes("LISTA DE COMPRAS") || t.toUpperCase().includes("LISTA COMPRAS")) {
       if (current) {
         days.push(current);
         current = null;
@@ -145,17 +153,16 @@ export function parseSemana(text) {
       break;
     }
 
-    const dayMatch = DAYS.find((d) =>
-      t.toUpperCase().replace(/[*#_]/g, "").trim().startsWith(d.toUpperCase())
-    );
+    const cleanForDay = t.replace(/[*#_]/g, "").trim();
+    const dayMatch = DAYS.find((d) => d.regex.test(cleanForDay) && cleanForDay.length < 25);
 
     if (dayMatch) {
       if (current) days.push(current);
-      current = { day: dayMatch, meals: [] };
-    } else if (current && (t.startsWith("-") || t.startsWith("•") || t.startsWith("*") || t.includes(":"))) {
-      const clean = t.replace(/^[-•*]\s*/, "");
+      current = { day: dayMatch.name, meals: [] };
+    } else if (current && (t.startsWith("-") || t.startsWith("•") || t.startsWith("*") || /^\d+[\.\)]/.test(t) || t.includes(":"))) {
+      const clean = t.replace(/^[-•*0-9.)]\s*/, "").trim();
       const colonIdx = clean.indexOf(":");
-      if (colonIdx > 0 && colonIdx < 25) {
+      if (colonIdx > 0 && colonIdx < 30) {
         const time = clean.substring(0, colonIdx).trim();
         const name = clean.substring(colonIdx + 1).trim();
         if (name) current.meals.push({ time, name });

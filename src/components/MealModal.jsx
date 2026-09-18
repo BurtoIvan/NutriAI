@@ -1,4 +1,4 @@
-﻿// src/components/MealModal.jsx
+// src/components/MealModal.jsx
 import React, { useState, useEffect } from "react";
 import { X, Bookmark, BookmarkCheck, ChefHat, Loader2, Sparkles } from "lucide-react";
 import { callClaude } from "../services/ai";
@@ -45,7 +45,7 @@ ${restrictionsNotice}`;
       })
       .catch((err) => {
         if (isMounted) {
-          setText("Hubo un problema al consultar la receta. Por favor intentá nuevamente.");
+          setText(`⚠️ Error: ${err.message || "Hubo un problema al consultar la receta. Por favor intentá nuevamente."}`);
           setLoading(false);
         }
       });
